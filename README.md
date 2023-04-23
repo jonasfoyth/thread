@@ -18,3 +18,7 @@ Considere que:
 - C > 0
 - n >= C+1
 - m > 0 e m < 6
+
+n = número de threads dos passageiros, 
+C = número de lugares no carros
+m = número de carros 
