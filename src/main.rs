@@ -177,11 +177,32 @@ fn car_run(car_id: i8) {
     drop(car_info)
 }
 
-fn passengers_board(passangers: i32) -> i32 {
-    passangers
+fn passenger_board(passangers: i32) -> bool {
+    for car_id in 1..6 + 1 {
+        let mut car_info = match car_id {
+            1 => CAR1.write(),
+            2 => CAR2.write(),
+            3 => CAR3.write(),
+            4 => CAR4.write(),
+            5 => CAR5.write(),
+            6 => CAR6.write(),
+            _ => return false,
+        };
+
+        if let Some(free_slots) = (*car_info).free_slots {
+            if free_slots > 0 {
+                (*car_info).free_slots.clone_from(&Some(free_slots - 1));
+                drop(car_info);
+                return true;    
+            }; 
+        };
+        drop(car_info);
+    };
+
+    false
 }
 
-fn passengers_unboard(passangers: i32) -> i32 {
+fn passenger_unboard(passangers: i32) -> i32 {
     passangers
 }
 
@@ -209,29 +230,36 @@ fn main() {
             car_unload(car_id);
         });
         handles.push(handle);
-    }
+    };
 
     for person_id in 0..passengers_number {
-        thread::spawn(move || loop {
-            let mut passangers = PASSANGERS.write();
-            println!("\n:: person id: {}", person_id);
+        thread::spawn(move || {
+            loop {
+                    let mut passangers = PASSANGERS.write();
+                    println!("\n:: person id: {}", person_id);
 
-            if let Some(passenger) = (*passangers)
-                .iter()
-                .find(|&person| person.id == Some(person_id))
-            {
-                println!(":: passenger : {:?}", passenger);
+                    if let Some(passenger) = (*passangers).clone()
+                        .iter_mut()
+                        .find(|person| person.id == Some(person_id))
+                    {
+                        println!(":: passenger : {:?}", passenger);
 
-                if passenger.can_load {
-                    passengers_board(passenger.id.unwrap());
-                } else {
-                    passengers_unboard(passenger.id.unwrap());
-                };
-            }
+                        if passenger.can_load {
+                            if passenger_board(passenger.id.unwrap()) {
+                                passenger.boarded = true;
+                            };
+                        } else {
+                            passenger_unboard(passenger.id.unwrap());
+                        };
+                        (*passangers).retain(|a| a.id != passenger.id);
+                        (*passangers).push_back(passenger.clone());
+
+                    };
 
 
-            // println!("");
-            drop(passangers);
+                    // println!("");
+                    drop(passangers);
+                }
         });
     }
 
