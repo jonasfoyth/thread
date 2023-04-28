@@ -1,143 +1,169 @@
 use rand::Rng;
-use std::{sync::{Mutex, Condvar}, thread, time};
+use std::{
+    sync::{Condvar, Mutex},
+    thread,
+    time,
+};
 
 #[macro_use]
 extern crate lazy_static;
 
 static CAR_NUMBER: i32 = 6;
 static CAR_SLOTS: i32 = 4;
-static CAPACITY: i32 = 24;
 
 lazy_static! {
-    static ref BOARD_QUEUE: (Mutex<i32>, Condvar) = (Mutex::new(0), Condvar::new());
-    static ref UNBOARD_QUEUE: (Mutex<i32>, Condvar) = (Mutex::new(0), Condvar::new());
+    static ref BOARD_QUEUE: Mutex<i32> = Mutex::new(0);
+    static ref UNBOARD_QUEUE: Mutex<i32> = Mutex::new(0);
     static ref ALL_BOARDED: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
     static ref ALL_UNBOARDED: (Mutex<bool>, Condvar) = (Mutex::new(true), Condvar::new());
+    static ref ALL_RUNNED: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
     static ref BOARDED_COUNTER: Mutex<i32> = Mutex::new(0);
 }
 
-fn load(id: i8){
-	println!("\nRide will begin, time to load!\n");
-	println!("This car's capacity is {}\n", CAR_SLOTS);
-	thread::sleep(time::Duration::from_secs(2));
+fn load(id: i8) {
+    println!("\n:: Ride will begin, time to load!");
+    println!("\n:: Car {} capacity is {}", id, CAR_SLOTS);
+
+    let mut queue = BOARD_QUEUE.try_lock().unwrap();
+
+    for _ in 0..CAR_SLOTS {
+        (*queue) += 1;
+    };
+
+    drop(queue);
+
 }
 
-fn run(id: i8){
-	println!("The car is full, time to ride!\n");
-	thread::sleep(time::Duration::from_secs(2));
-	println!(":: The car is now riding the roller coaster!\n");
-	thread::sleep(time::Duration::from_secs(5));
-}
-fn unload(id: i32){
-	println!(":: The ride is over, time to unload!\n");
-	thread::sleep(time::Duration::from_secs(2));
-}
-fn board(id: i32){
-	// println!(":: passenger {} have boarded the car...\n", id);
-    let mut passengers_boarded = BOARDED_COUNTER.lock().unwrap();
-    (*passengers_boarded) += 1;
-    println!(":: passengers boarded: {}\n", (*passengers_boarded));
+fn run(id: i8) {
+    let (run_lock, run_cvar) = &*RUNNED;
+    if let Ok(mut run) = run_lock.try_lock() {
+        (*run) = false;
+        run_cvar.notify_all();
+        drop(run);
+    };
 
-    drop(passengers_boarded);
-	thread::sleep(time::Duration::from_secs(2));
+    println!("\n:: The car {} is full, time to ride!", id);
+    thread::sleep(time::Duration::from_secs(2));
+    println!(":: The car {} is now riding the roller coaster!", id);
+    thread::sleep(time::Duration::from_secs(5));
+}
+fn unload(id: i8) {
+    println!("\n:: The car {} ride is over, time to unload!", id);
+    thread::sleep(time::Duration::from_secs(2));
+
+    if let Ok(mut queue) = UNBOARD_QUEUE.try_lock() {
+        for _ in 0..CAR_SLOTS {
+            (*queue) += 1;
+        };
+    
+        drop(queue);
+    };
+
+}
+fn board(id: i32) {
+
+    let queue = BOARD_QUEUE.lock().unwrap();
+
+    if let Ok(mut passengers_boarded) = BOARDED_COUNTER.lock() {
+        if (*passengers_boarded) < (*queue) {
+            println!("\n:: passenger {} have boarded the car...", id);
+            (*passengers_boarded) += 1;
+            println!(":: boarded in car {:?}", (*passengers_boarded));
+        } else if (*passengers_boarded) == (*queue) {
+            let (all_lock, all_cvar) = &*ALL_BOARDED;
+            let mut all_boarded = all_lock.lock().unwrap();
+            (*all_boarded) = true;
+            all_cvar.notify_all();
+            drop(all_boarded);
+
+            let (all_un_lock, all_un_cvar) = &*ALL_UNBOARDED;
+            let mut all_unboarded = all_un_lock.lock().unwrap();
+            (*all_unboarded) = false;
+            all_un_cvar.notify_all();
+            drop(all_unboarded);
+        }
+        drop(queue);
+        drop(passengers_boarded);
+    };
+    // println!("\n:: end");
+
 }
 
-fn unboard(id: i32){
-    let mut passengers_boarded = BOARDED_COUNTER.lock().unwrap();
-    (*passengers_boarded) -= 1;
-    println!(":: passengers boarded: {}\n", (*passengers_boarded));
-}
+fn unboard(id: i32) {
+    let queue = UNBOARD_QUEUE.lock().unwrap();
 
-fn randon_number() -> u64 {
-    let mut randon = rand::thread_rng();
-    randon.gen_range(1..5)
+    if let Ok(mut passengers_boarded) = BOARDED_COUNTER.try_lock() {
+        if (*passengers_boarded) >= (*queue) {
+            println!("\n:: passenger {} have unboarded the car...", id);
+            (*passengers_boarded) -= 1;
+            println!(":: boarded in car {:?}", (*passengers_boarded));
+        } else if (*passengers_boarded) == (*queue) {
+
+            let (all_un_lock, all_un_cvar) = &*ALL_UNBOARDED;
+            let mut all_unboarded = all_un_lock.lock().unwrap();
+            (*all_unboarded) = true;
+            all_un_cvar.notify_all();
+            drop(all_unboarded);
+
+            let (all_lock, _all_cvar) = &*ALL_BOARDED;
+            let mut all_boarded = all_lock.try_lock().unwrap();
+            (*all_boarded) = false;
+            all_un_cvar.notify_all();
+            drop(all_boarded);
+        };
+    };
+    
+    drop(queue);
 }
 
 fn passenger_thread(passenger_id: i32) {
     loop {
-        let (board_lock, cvar) = &*BOARD_QUEUE;
+        board(passenger_id);
+        let (runned_lock, cvar) = &*RUNNED;
+        let mut car_runned = runned_lock.lock().unwrap();
 
-        if let Ok(mut car_boarded) = board_lock.lock() {
-            while (*car_boarded) < CAPACITY {
-                println!("\n passenger {:?}", passenger_id);
-                println!("\n car_boarded {:?}", (*car_boarded));
-                car_boarded = cvar.wait(car_boarded).unwrap();
-            };         
-    
-            board(passenger_id);
-    
-            drop(car_boarded);
-        }
-    
-        println!("\nPASS TESTE 1");
-
-        let passengers_boarded = BOARDED_COUNTER.lock().unwrap();
-
-        if (*passengers_boarded) == CAPACITY {
-            println!("\nPASS TESTE 2");
-            let (allboard_lock, all_cvar) = &*ALL_BOARDED;
-            let mut all_boarded = allboard_lock.lock().unwrap();
-            (*all_boarded) = true;
-            all_cvar.notify_one();
-            drop(all_boarded);
+        while !(*car_runned) {
+            println!("\ncar_runned: {}", car_runned);
+            car_runned = cvar.wait(car_runned).unwrap();
         };
 
-        // drop(passengers_boarded);
+        println!("\nrunned {}", passenger_id);
 
-        // println!("PASS TESTE 3");
-
-        // let (unboard_lock, cvar) = &*UNBOARD_QUEUE;
-        // let mut car_unboarded = unboard_lock.lock().unwrap();
-
-        // while (*car_unboarded) == 0 {
-        //     car_unboarded = cvar.wait(car_unboarded).unwrap();
-        // }; 
-
-        // drop(car_unboarded);
         // unboard(passenger_id);
 
     }
 }
 
 fn car_thread(car_id: i8) {
-    print!("\nCAR ID: {:}", car_id);
+    print!("\nCAR ID: {:}\n", car_id);
     loop {
         load(car_id);
-
-        let (board_queue, quee_cvar) = &*BOARD_QUEUE;
-
-        let mut queue: std::sync::MutexGuard<i32> = board_queue.lock().unwrap();
-        print!("\nCAR QUEUE: {:}", (*queue));
-
-        for _ in 0..CAR_SLOTS {
-            (*queue) += 1; 
-        };
-
-        quee_cvar.notify_one();
-
-        drop(queue);
-
         let (passengers_boarded, cvar) = &*ALL_BOARDED;
         let mut boarded = passengers_boarded.lock().unwrap();
 
         while !*boarded {
             boarded = cvar.wait(boarded).unwrap();
-        };         
+        };
 
         run(car_id);
-        print!("\nCAR TESTE 3");
 
-        // let (unboard_queue, unquee_cvar) = &*UNBOARD_QUEUE;
-        // let mut un_queue: std::sync::MutexGuard<i32> = unboard_queue.lock().unwrap();
+        let (run_lock, run_cvar) = &*RUNNED;
+        let mut run = run_lock.lock().unwrap();
+        (*run) = true;
+        run_cvar.notify_all();
 
-        // for _ in 0..CAR_SLOTS {
-        //     (*un_queue) -= 1; 
+        drop(run);
+
+        loop {}
+
+        // unload(car_id);
+
+        // let (passengers_unboarded, cvar) = &*ALL_UNBOARDED;
+        // let mut unboarded = passengers_unboarded.lock().unwrap();
+        // println!("\nunboarded: {}", unboarded);
+        // while !*unboarded {
+        //     unboarded = cvar.wait(unboarded).unwrap();
         // };
-
-        // drop(un_queue);
-        // unquee_cvar.notify_one();
-
-
     }
 }
 
@@ -146,21 +172,14 @@ fn main() {
     let passengers_number = rng.gen_range((6 * CAR_SLOTS)..100);
     println!("\nPassengers number: {:?}", passengers_number);
 
-    // Arc: share memory with all threads and mutex turn data lockable
-
-    let mut handles: Vec<thread::JoinHandle<_>> = vec![];
-    // let mut cars = vec![];
-
     for car_id in 1..6 + 1 {
         println!("car ID: {:?}", car_id);
-        let handle = thread::spawn(move || loop {
+        thread::spawn(move || loop {
             car_thread(car_id);
-
         });
-        handles.push(handle);
-    };
+    }
 
-    for person_id in 0..passengers_number {
+    for person_id in 1..passengers_number {
         thread::spawn(move || {
             passenger_thread(person_id);
         });
