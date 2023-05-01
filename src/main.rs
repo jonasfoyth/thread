@@ -1,183 +1,164 @@
-use lazy_static::__Deref;
 use rand::Rng;
 use std::{
-    sync::{Arc, Condvar, Mutex},
+    sync::Mutex,
     thread, time,
 };
 
 #[macro_use]
 extern crate lazy_static;
 
-static CAR_NUMBER: i32 = 6;
-static CAR_SLOTS: i32 = 4;
-static CAPACITY: i32 = 24;
+static CAR_NUMBER: i8 = 6;
+static CAR_SLOTS: i8 = 4;
 
-// lazy_static! {
-//     static ref BOARD_QUEUE: Mutex<i32> = Mutex::new(0);
-//     static ref UNBOARD_QUEUE: Mutex<i32> = Mutex::new(0);
-//     static ref ALL_BOARDED: Arc<(Mutex<bool>, Condvar)> = Arc::new((Mutex::new(false), Condvar::new()));
-//     static ref ALL_UNBOARDED: (Mutex<bool>, Condvar) = (Mutex::new(true), Condvar::new());
-//     static ref RUNNED: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
-//     static ref BOARDED_COUNTER: Mutex<i32> = Mutex::new(0);
-// }
+lazy_static! {
+    static ref ALL_BOARDED: Mutex<i32> = Mutex::new(0);
+    static ref CAR_FULL: Mutex<bool> = Mutex::new(false);
+    static ref LOAD: Mutex<bool> = Mutex::new(true);
+    static ref CAR_RUNNING: Mutex<Vec<bool>> = Mutex::new(Vec::with_capacity(6));
+}
+
+fn runned_status() -> Vec<bool> {
+    CAR_RUNNING.lock().unwrap().to_vec()
+}
+
+fn runned_upate(state: bool, pos: i8) {
+    CAR_RUNNING.lock().unwrap()[(pos - 1) as usize] = state;
+}
+
+fn car_status() -> bool {
+    CAR_FULL.lock().unwrap().clone()
+}
+
+fn car_upate(state: bool) {
+    CAR_FULL.lock().unwrap().clone_from(&state);
+}
+
+fn load_status() -> bool {
+    LOAD.lock().unwrap().clone()
+}
+
+fn load_update(state: bool) {
+    LOAD.lock().unwrap().clone_from(&state);
+}
 
 fn load(id: i8) {
-    println!("\n:: Ride will begin, time to load!");
-    // println!("\n:: Car {} capacity is {}", id, CAR_SLOTS);
+    println!("\n:: Car {} is ready to load", id);
+    load_update(true);
 }
 
-fn run(id: i8) {
-    // let (run_lock, run_cvar) = &*RUNNED;
-    // let mut run = run_lock.try_lock().unwrap();
-    // (*run) = false;
-    // run_cvar.notify_all();
-    // drop(run);
-
-    // println!("\n:: The car {} is full, time to ride!", id);
-    // thread::sleep(time::Duration::from_secs(2));
-    // println!(":: The car {} is now riding the roller coaster!", id);
-    // thread::sleep(time::Duration::from_secs(5));
+fn run(id: i8) -> bool {
+    println!("\n:: The car {} is full, time to ride!", id);
+    thread::sleep(time::Duration::from_secs(5));
+    println!(":: The car {} is now riding the roller coaster!", id);
+    true
 }
+
 fn unload(id: i8) {
-    // println!("\n:: The car {} ride is over, time to unload!", id);
-    // thread::sleep(time::Duration::from_secs(2));
-
-    // if let Ok(mut queue) = UNBOARD_QUEUE.try_lock() {
-    //     for _ in 0..CAR_SLOTS {
-    //         (*queue) += 1;
-    //     }
-
-    //     drop(queue);
-    // };
-}
-fn board(id: i32) {
-    // println!("\n:: Person {} boarded", id);
-    // println!("\n:: end");
+    println!("\n:: Car {} is ready to unload", id);
+    load_update(false);
+    thread::sleep(time::Duration::from_secs(2));
 }
 
-fn unboard(id: i32) {
-    // let queue = UNBOARD_QUEUE.lock().unwrap();
+fn board(id: i8) -> (bool, bool) {
+    thread::sleep(time::Duration::from_secs(1));
+    if let Ok(mut queue) = ALL_BOARDED.lock() {
+        println!("\n:: Persons boarded: {} ", (*queue));
+        if (*queue) == 24 {
+            println!(":: Person {} not boarded", id);
+            return (true, true);
+        } else {
+            (*queue) += 1;
+            println!(":: Person {} boarded", id);
+            return (true, false);
+        };
+    } else {
+        return (false, false);
+    }
+}
 
-    // if let Ok(mut passengers_boarded) = BOARDED_COUNTER.try_lock() {
-    //     if (*passengers_boarded) >= (*queue) {
-    //         println!("\n:: passenger {} have unboarded the car...", id);
-    //         (*passengers_boarded) -= 1;
-    //         println!(":: boarded in car {:?}", (*passengers_boarded));
-    //     } else if (*passengers_boarded) == (*queue) {
-    //         let (all_un_lock, all_un_cvar) = &*ALL_UNBOARDED;
-    //         let mut all_unboarded = all_un_lock.lock().unwrap();
-    //         (*all_unboarded) = true;
-    //         all_un_cvar.notify_all();
-    //         drop(all_unboarded);
-
-    //         let (all_lock, _all_cvar) = &*ALL_BOARDED;
-    //         let mut all_boarded = all_lock.try_lock().unwrap();
-    //         (*all_boarded) = false;
-    //         all_un_cvar.notify_all();
-    //         drop(all_boarded);
-    //     };
-    // };
-
-    // drop(queue);
+fn unboard(id: i8) -> bool {
+    thread::sleep(time::Duration::from_secs(2));
+    if let Ok(mut queue) = ALL_BOARDED.lock() {
+        println!("\n:: Persons boarded: {} ", (*queue));
+        if (*queue) != 0 {
+            (*queue) -= 1;
+            println!("\n:: Person {} unboarded", id);
+        } else if (*queue) == 0 {
+            car_upate(false);
+        };
+        drop(queue);
+    };
+    return false;
 }
 
 fn main() {
-    print!("\n\n:: BEGIN ####################################################\n\n");
-
+    println!("\n:: Ride will begin, time to load!");
     let mut rng = rand::thread_rng();
     let passengers_number = rng.gen_range((6 * CAR_SLOTS)..100);
-    println!("\nPassengers number: {:?}", passengers_number);
+    println!("\n:: Passengers number: {:?}", passengers_number);
 
-    let all_boarded: Arc<(Mutex<bool>, Condvar)> = Arc::new((Mutex::new(false), Condvar::new()));
-    let running: Arc<(Mutex<bool>, Condvar)> = Arc::new((Mutex::new(false), Condvar::new()));
-    let queue_counter: Arc<Mutex<i32>> = Arc::new(Mutex::new(0));
-    let queue_size: Arc<Mutex<i32>> = Arc::new(Mutex::new(0));
-
-    let mut persons = Vec::with_capacity(passengers_number as usize);
-
-    for car_id in 1..6 + 1 {
-        let all_boarded_clone = Arc::clone(&all_boarded);
-        let running_clone = Arc::clone(&running);
-        let queue_counter_clone = Arc::clone(&queue_counter);
-        let queue_size_clone = Arc::clone(&queue_size);
-
-        thread::spawn(move || loop {
-            load(car_id);
-            let &(ref all_boarded, ref all_cnd) = &*all_boarded_clone;
-            let mut guard: std::sync::MutexGuard<_> = all_boarded.lock().unwrap();
-            while !*guard {
-                println!("car {:?} waiting", car_id);
-                guard = all_cnd.wait(guard).unwrap();
-            }
-            *guard = false;
-
-            drop(guard);
-            println!("\ncar ID: {:?} starting", car_id);
-
+    for car_id in 1..(CAR_NUMBER + 1) {
+        CAR_RUNNING.lock().unwrap().push(false);
+        thread::spawn(move || {
+            let mut runned = false;
+            // runned_upate(false, car_id);
             loop {
-                println!("\n car {} running", car_id);
-                thread::sleep(time::Duration::from_secs(10));
+                if runned {
+                    if load_status() != false {
+                        unload(car_id);
+                    };
+                    if !car_status() {
+                        runned_upate(true, car_id);
+                        if runned_status().iter().all(|&x| x == true) {
+                            runned = false;
+                        };
+                    };
+                } else {
+                    if car_status() {
+                        runned = run(car_id);
+                    } else if load_status() != true {
+                        runned_upate(false, car_id);
+                        load(car_id);
+                    };
+                };
             }
-
-            // let &(ref all_boarded, ref all_cnd) = &*all_boarded_clone;
-            // let mut guard: std::sync::MutexGuard<_> = all_boarded.lock().unwrap();
-            // while !*guard {
-            //     println!("car {:?} waiting", car_id);
-            //     guard = all_cnd.wait(guard).unwrap();
-            // }
-            // *guard = false;
-
-            // drop(guard);
-            // unload(car_id);
         });
     }
 
     for person_id in 1..passengers_number {
-        let all_boarded_clone = Arc::clone(&all_boarded);
-        let running_clone = Arc::clone(&running);
-        let queue_counter_clone = Arc::clone(&queue_counter);
-        let queue_size_clone = Arc::clone(&queue_size);
-        persons.push(thread::spawn(move || loop {
-            // loop {}
-
-            // let &(ref runned_lock, ref cvar) = &*running;
-            // let mut car_runned = runned_lock.lock().unwrap();
-            let mut passengers_boarded = queue_counter_clone.lock().unwrap();
-            // println!(":: passengers {:?}", (*passengers_boarded));
-            // println!(":: all slots free {:?}", CAPACITY - (*passengers_boarded));
-
-            if (*passengers_boarded) == CAPACITY {
-                // println!("\n unlock run");
-                for _ in 0..CAR_NUMBER {
-                    let &(ref all_lock, ref all_cvar) = &*all_boarded_clone;
-                    let mut all_boarded = all_lock.lock().unwrap();
-                    (*all_boarded) = true;
-                    all_cvar.notify_all();
-                    drop(all_boarded);
+        thread::spawn(move || {
+            let mut boarded = false;
+            loop {
+                if load_status() {
+                    // println!("\n:: LOAD status: true");
+                    if let Ok(mut car_full) = CAR_FULL.lock() {
+                        if !(*car_full) {
+                            // println!("PERSON ID: {}", person_id);
+                            if !boarded {
+                                let status = board(person_id);
+                                (*car_full) = status.1;
+                                boarded = status.0;
+                            };
+                        } else {
+                            // println!("\n:: person {} waiting next board", person_id);
+                        }
+                        drop(car_full);
+                    }
+                } else {
+                    // println!("\n:: LOAD status: false");
+                    // println!("\n:: Person {} - boarded: {}", person_id, boarded);
+                    if car_status() {
+                        // println!("car stats: {}", car_status());
+                        if boarded {
+                            boarded = unboard(person_id);
+                            thread::sleep(time::Duration::from_secs(2));
+                        };
+                    }
                 }
-            } else if (*passengers_boarded) < CAPACITY {
-                board(person_id);
-                (*passengers_boarded) += 1;
-                // println!(":: boarded in car {:?}", (*passengers_boarded));
-            };
-            drop(passengers_boarded);
-
-            // let &(ref run_lock, ref run_cnd) = &*running_clone;
-            // let mut running: std::sync::MutexGuard<_> = run_lock.lock().unwrap();
-
-            let &(ref run_lock, ref run_cnd) = &*all_boarded_clone;
-            let mut guard: std::sync::MutexGuard<_> = run_lock.lock().unwrap();
-            while !*guard {
-                println!("person {:?} waiting", person_id);
-                guard = run_cnd.wait(guard).unwrap();
                 thread::sleep(time::Duration::from_secs(2));
             }
-            *guard = false;
-        }));
+        });
     }
 
-    for person in persons {
-        person.join().unwrap();
-        // println!("{:?}",);
-    }
+    loop {}
 }

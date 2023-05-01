@@ -22,3 +22,18 @@ Considere que:
 n = número de threads dos passageiros, 
 C = número de lugares no carros
 m = número de carros 
+
+###### Passos para compilar/testar #####
+
+1- instalar rust $curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+2- alterar versão: $rustup override set 1.62.0
+
+3- instalar vscode
+
+4- adicioar as extensões:
+
+- rust-analyzer
+- CodeLLDB 
+
+5- debugar: Precionar F5 e adicionar confguração para o codeLLDB
